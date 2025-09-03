@@ -5,6 +5,12 @@ import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 
+// [2025.08.31] @react-navigation
+import android.os.Bundle;
+
+// [2025.09.03] react-native-screens
+// import com.swmansion.rnscreens.fragment.restoration.RNScreensFragmentFactory;
+
 class MainActivity : ReactActivity() {
 
   /**
@@ -19,4 +25,12 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  // [2025.08.31] @react-navigation
+  override fun onCreate(savedInstanceState: Bundle?) {
+    // [2025.09.03] react-native-screens
+    // supportFragmentManager.fragmentFactory = RNScreensFragmentFactory()
+
+    super.onCreate(null)
+  }
 }
