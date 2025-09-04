@@ -5,7 +5,6 @@ import {
   View,
   TouchableOpacity,
   Dimensions,
-  FlatList,
   ListRenderItemInfo,
 } from 'react-native';
 import dayjs from 'dayjs';
@@ -15,14 +14,18 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import {
+  GestureDetector,
+  Gesture,
+  FlatList,
+} from 'react-native-gesture-handler';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { runOnJS } from 'react-native-worklets';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CONTAINER_PADDING = 20;
 const DAY_SIZE = (SCREEN_WIDTH - CONTAINER_PADDING * 2) / 7;
-const ANIMATION_DURATION = 2000;
+const ANIMATION_DURATION = 800;
 const CALENDAR_HEIGHT = { month: DAY_SIZE * 6, week: DAY_SIZE };
 
 type DayData = {
@@ -41,16 +44,8 @@ type WeekData = {
   days: Array<DayData>;
 };
 
-// TODO: 필요시 전/다음 이동 기능을 FlatList로 스크롤 하는 방식이 아닌 gesture 이벤트로 핸들링
-// 현재는 자연스러운 스크롤 처리를 위해 FlatList의 스크롤 기능을 그대로 두고있는데,
-// 현재 랜더링된 범위 밖으로 scroll 할수 없고 onMomentumScrollEnd이벤트로 처리하고 있어
-// 이벤트가 제대로 발생 안하면 스크롤이 일시적으로 막힐 수 있는 단점이 있다
-// gesture로 처리시, 좌우 1개만 미리 만들어 두거나 혹은 필요한 추가 화면을 1개만 랜더링해서 이동시키면 되고
-// 모든 작동이 관리되어 crollend를 체크할 필요도 없고 로직도 훨씬 깔끔해진다
-// 다만 조작성이 아쉬울 수 있음
-// ++ onMomentumScrollEnd가 Android에서는 작동하지 않아서 수정 필요
-const MAX_OTHER = 3;
-export default function Calendar() {
+const MAX_OTHER = 1;
+const Calendar = () => {
   const [currentRow, setCurrentRow] = useState<number>(-1);
   const [isMoving, setIsMoving] = useState<boolean>(false);
   const [mode, setMode] = useState<'month' | 'week'>('month');
@@ -85,7 +80,7 @@ export default function Calendar() {
   // TODO: 현재 방식은 pages 변경으로 인한 flatlist UI와 scrollindex 변경 사이에 delay 발생시 UI 튐이 발생하는것을 잡아야함
   // 상단에 임시 화면을 잠깐 비췄다가 감추는 등 여러 방법이 있지만 일단은 해결하지 않고 둠
   useEffect(() => {
-    const pages = [];
+    const pages: MonthData[] = [];
     for (let i = -MAX_OTHER; i <= MAX_OTHER; i++) {
       pages.push(buildMonth(monthBase.add(i, 'month')));
     }
@@ -98,7 +93,7 @@ export default function Calendar() {
   }, [monthBase]);
 
   useEffect(() => {
-    const pages = [];
+    const pages: WeekData[] = [];
     for (let i = -MAX_OTHER; i <= MAX_OTHER; i++) {
       pages.push(buildWeek(weekBase.add(i, 'week')));
     }
@@ -112,17 +107,17 @@ export default function Calendar() {
 
   const goPrev = useCallback(() => {
     const ref = mode === 'month' ? monthRef : weekRef;
-    ref.current?.scrollToIndex({ index: MAX_OTHER - 1, animated: false });
+    ref.current?.scrollToIndex({ index: MAX_OTHER - 1, animated: true });
   }, [mode]);
 
   const goNext = useCallback(() => {
     const ref = mode === 'month' ? monthRef : weekRef;
-    ref.current?.scrollToIndex({ index: MAX_OTHER + 1, animated: false });
+    ref.current?.scrollToIndex({ index: MAX_OTHER + 1, animated: true });
   }, [mode]);
 
   const onMonthScrollEnd = (e: any) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-    setMonthBase(prev => prev.add(page - MAX_OTHER, 'month'));
+    setMonthBase(monthPages[page].base);
   };
   const onWeekScrollEnd = (e: any) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -151,9 +146,13 @@ export default function Calendar() {
       });
 
       if (nextMode === 'week') {
-        calendarOffsetY.value = withTiming(-weekIndex * DAY_SIZE, {
-          duration: ANIMATION_DURATION,
-        });
+        calendarOffsetY.value = withTiming(
+          -weekIndex * DAY_SIZE,
+          {
+            duration: ANIMATION_DURATION,
+          },
+          () => runOnJS(setIsMoving)(false),
+        );
         setTimeout(() => {
           const selectedDay = weeks[weekIndex].find(isSelected);
           const newWeek = selectedDay ? selectedDay.date : monthBase;
@@ -165,11 +164,12 @@ export default function Calendar() {
       } else {
         setMode(nextMode);
         calendarOffsetY.value = -weekIndex * DAY_SIZE;
-        calendarOffsetY.value = withTiming(0, {
-          duration: ANIMATION_DURATION,
-        });
+        calendarOffsetY.value = withTiming(
+          0,
+          { duration: ANIMATION_DURATION },
+          () => runOnJS(setIsMoving)(false),
+        );
       }
-      setIsMoving(false);
     },
     [isMoving, mode, monthPages, weekBase, selectedDate, monthBase],
   );
@@ -190,11 +190,8 @@ export default function Calendar() {
   }, []);
 
   const renderMonth = ({ item }: ListRenderItemInfo<MonthData>) => (
-    <Animated.View
-      key={JSON.stringify(item)}
-      style={[styles.page, animatedContainer]}
-    >
-      <Animated.View key={JSON.stringify(item) + '1'} style={slideStyle}>
+    <Animated.View key={item.id} style={[styles.page, animatedContainer]}>
+      <Animated.View key={'sub' + item.id} style={slideStyle}>
         {item.weeks.map((week, i) => (
           <Animated.View
             key={i}
@@ -248,7 +245,7 @@ export default function Calendar() {
         {mode === 'month' ? (
           <FlatList
             ref={monthRef}
-            scrollEnabled={!isMoving}
+            scrollEnabled={false}
             data={monthPages}
             keyExtractor={i => i.id}
             horizontal
@@ -265,7 +262,7 @@ export default function Calendar() {
         ) : (
           <FlatList
             ref={weekRef}
-            scrollEnabled={!isMoving}
+            scrollEnabled={false}
             data={weekPages}
             keyExtractor={i => i.id}
             horizontal
@@ -283,7 +280,7 @@ export default function Calendar() {
       </GestureDetector>
     </SafeAreaView>
   );
-}
+};
 
 const DayRow = () => {
   return (
@@ -304,41 +301,42 @@ type DayCellProps = {
   onSelect: (date: dayjs.Dayjs) => void;
 };
 
-const DayCell: React.FC<DayCellProps> = ({
-  day,
-  index,
-  selectedDate,
-  onSelect,
-}) => {
-  const selected = day.date.format('YYYY-MM-DD') === selectedDate;
+const DayCell: React.FC<DayCellProps> = React.memo(
+  ({ day, index, selectedDate, onSelect }) => {
+    const selected = day.date.format('YYYY-MM-DD') === selectedDate;
 
-  return (
-    <TouchableOpacity
-      key={index}
-      style={styles.cell}
-      onPress={() => onSelect(day.date)}
-    >
-      <View style={[selected && styles.selCircle, styles.circle]}>
-        <Text
-          style={[
-            styles.cellText,
-            day.type === 'adj' && styles.adjText,
-            selected && styles.selText,
-          ]}
-        >
-          {day.date.date()}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-};
+    return (
+      <TouchableOpacity
+        key={index}
+        style={styles.cell}
+        onPress={() => onSelect(day.date)}
+      >
+        <View style={[selected && styles.selCircle, styles.circle]}>
+          <Text
+            style={[
+              styles.cellText,
+              day.type === 'adj' && styles.adjText,
+              selected && styles.selText,
+            ]}
+          >
+            {day.date.date()}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  },
+);
 
+const cachedMonth: { [key: string]: MonthData } = {};
 const buildMonth = (base: dayjs.Dayjs): MonthData => {
+  const id = base.format('YYYY-MM');
+  if (cachedMonth[id]) return cachedMonth[id];
+
   const weeksArr: MonthData['weeks'] = [];
   const baseDay = base.day();
   const daysInMonth = base.daysInMonth();
   const prev = base.subtract(1, 'month');
-  const arr: any[] = [];
+  const arr: DayData[] = [];
 
   // 저번달 날짜를 채운다
   for (let i = baseDay - 1; i >= 0; i--) {
@@ -356,10 +354,14 @@ const buildMonth = (base: dayjs.Dayjs): MonthData => {
   while (arr.length < 42) {
     arr.push({ date: next.date(addDay++), type: 'adj' });
   }
+
   for (let i = 0; i < 42; i += 7) {
     weeksArr.push(arr.slice(i, i + 7));
   }
-  return { id: base.format('YYYY-MM'), base, weeks: weeksArr };
+
+  const month = { id: id, base, weeks: weeksArr };
+  cachedMonth[id] = month;
+  return cachedMonth[id];
 };
 
 const buildWeek = (base: dayjs.Dayjs): WeekData => {
@@ -416,3 +418,5 @@ const styles = StyleSheet.create({
   selCircle: { backgroundColor: '#468DFF' },
   selText: { color: '#fff', fontWeight: '700' },
 });
+
+export default Calendar;
